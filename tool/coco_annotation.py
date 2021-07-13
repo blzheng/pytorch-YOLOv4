@@ -14,10 +14,19 @@ import json
 from collections import defaultdict
 from tqdm import tqdm
 import os
+import argparse
+
+parser = argparse.ArgumentParser(description='PyTorch Yolov4 Training')
+parser.add_argument('--a', '--annotations', default='/lustre/dataset/COCO2017/annotations/instances_val2017.json', type=str, 
+                    help='annotations json file path')
+parser.add_argument('--i', '--images', type=str, default='/lustre/dataset/COCO2017/val2017/',
+                    help='weight file')
+args = parser.parse_args()
+print(args)
 
 """hyper parameters"""
-json_file_path = 'E:/Dataset/mscoco2017/annotations/instances_train2017.json'
-images_dir_path = 'mscoco2017/train2017/'
+json_file_path = args.a
+images_dir_path = args.i
 output_path = '../data/val.txt'
 
 """load json file"""
