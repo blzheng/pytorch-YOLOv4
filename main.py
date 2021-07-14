@@ -30,15 +30,15 @@ def get_args(**kwargs):
                         help='weight file')
     parser.add_argument('-i', '--imgfile', type=str, default='./data/dog.jpg',
                         help='image file')
-    parser.add_argument('--height', default=608, type=int, help='height')
-    parser.add_argument('--width', default=608, type=int, help='width')
+    parser.add_argument('--height', default=416, type=int, help='height')
+    parser.add_argument('--width', default=416, type=int, help='width')
     parser.add_argument('-n', '--namesfile', type=str, help='names file')
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
     parser.add_argument('--ipex', action='store_true', default=False,
                         help='use intel pytorch extension')
-    parser.add_argument('--old', action='store_true', default=False, 
-                        help='use old intel pytorch extension')
+    parser.add_argument('--xpu', action='store_true', default=False, 
+                        help='use IPEX XPU')
     parser.add_argument('--int8', action='store_true', default=False,
                         help='enable ipex int8 path')
     parser.add_argument('--bf16', action='store_true', default=False,
@@ -49,12 +49,16 @@ def get_args(**kwargs):
                         help='doing calibration step for int8 path')
     parser.add_argument('--configure-dir', default='configure.json', type=str, metavar='PATH',
                         help = 'path to int8 configures, default file name is configure.json')
-    parser.add_argument('--warmup', default=30, type=int, metavar='N',
-                        help='number of warmup iterati ons to run')
+    parser.add_argument('--warmup', default=10, type=int, metavar='N',
+                        help='number of warmup iterations to run')
+    parser.add_argument('--max_iter', default=30, type=int, 
+                        help='max iterations to run')
     parser.add_argument('--train', action='store_true',
                         help='do train')
     parser.add_argument('--evaluate', action='store_true',
                         help='do evaluate')
+    parser.add_argument('--profile', action='store_true',
+                        help='do profile')
     parser.add_argument('--val_label_path', dest='val_label', type=str, default='./data/val.txt', help="validate label path")
     parser.add_argument('-b', '--batch-size', default=64, type=int, metavar='N',
                         help='mini-batch size (default: 64), this is the total '
@@ -107,13 +111,14 @@ def validation(model, val_loader, criterion, args):
         number_iter,
         [batch_time, ap, ap50],
         prefix='Test: ')
-
+    model.eval()
     coco = convert_to_coco_api(val_loader.dataset, bbox_fmt='coco')
     coco_evaluator = CocoEvaluator(coco, iou_types = ["bbox"], bbox_fmt='coco')
     if args.ipex:
         with torch.no_grad():
             for i, batch in enumerate(val_loader):
-                end = time.time()
+                if i >= args.warmup:
+                    end = time.time()
                 images = batch[0]
                 images = [[cv2.resize(img, (args.width, args.height))] for img in images]
                 images = np.concatenate(images, axis=0)
@@ -124,37 +129,47 @@ def validation(model, val_loader, criterion, args):
                     output = model(images)
                 else:
                     images = images.to(memory_format=torch.channels_last)
-                    if args.bf16:
-                        if args.old:
-                            images = images.to(ipex.DEVICE)
-                        else:
-                            images = images.to(torch.bfloat16)
-                    elif args.old:
+                    if args.xpu:
                         images = images.to(ipex.DEVICE)
-                    if args.bf16 and not args.old:
+                    if args.bf16 and not args.xpu:
+                        images = images.to(torch.bfloat16)
                         with ipex.amp.autocast(enabled=True):
-                            output = model(images)
+                            if args.profile:
+                                with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
+                                    with record_function("model_inference"):
+                                        output = model(images)
+                            else:
+                                output = model(images)
                     else:
-                        output = model(images)
-                batch_time.update(time.time() - end)
+                        if args.profile:
+                            with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
+                                with record_function("model_inference"):
+                                    output = model(images)
+                        else:
+                            output = model(images)
+                if i >= args.warmup:
+                    batch_time.update(time.time() - end)
                 if args.bf16:
                     output = [o.to(torch.float32) for o in output]
                 targets = batch[1]
                 res = get_result(images, targets, output)
                 coco_evaluator.update(res)
-                if i % args.print_freq == 0:
-                    coco_evaluator.synchronize_between_processes()
-                    coco_evaluator.accumulate()
-                    coco_evaluator.summarize()
-                    stats = coco_evaluator.coco_eval['bbox'].stats
-                    ap.update(stats[0], images.size(0))
-                    ap50.update(stats[1], images.size(0))
-                    progress.display(i)
-                    coco_evaluator = CocoEvaluator(coco, iou_types = ["bbox"], bbox_fmt='coco')
+                # if i % args.print_freq == 0:
+                #     coco_evaluator.synchronize_between_processes()
+                #     coco_evaluator.accumulate()
+                #     coco_evaluator.summarize()
+                #     stats = coco_evaluator.coco_eval['bbox'].stats
+                #     ap.update(stats[0], images.size(0))
+                #     ap50.update(stats[1], images.size(0))
+                #     progress.display(i)
+                #     coco_evaluator = CocoEvaluator(coco, iou_types = ["bbox"], bbox_fmt='coco')
+                if i >= args.max_iter:
+                    break
     else:
         with torch.no_grad():
             for i, batch in enumerate(val_loader):
-                end = time.time()
+                if i >= args.warmup:
+                    end = time.time()
                 images = batch[0]
                 images = [[cv2.resize(img, (args.width, args.height))] for img in images]
                 images = np.concatenate(images, axis=0)
@@ -168,32 +183,49 @@ def validation(model, val_loader, criterion, args):
                     if args.bf16:
                         with torch.cpu.amp.autocast():
                             images = images.to(torch.bfloat16)
-                            output = model(images)
+                            if args.profile:
+                                with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
+                                    with record_function("model_inference"):
+                                        output = model(images)
+                            else:
+                                output = model(images)
                     else:
-                        output = model(images)
-                batch_time.update(time.time() - end)
+                        if args.profile:
+                            with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
+                                with record_function("model_inference"):
+                                    output = model(images)
+                        else:
+                            output = model(images)
+                if i >= args.warmup:
+                    batch_time.update(time.time() - end)
                 if args.bf16:
                     output = [o.to(torch.float32) for o in output]
                 targets = batch[1]
                 res = get_result(images, targets, output)
                 coco_evaluator.update(res)
-                if i % args.print_freq == 0:
-                    coco_evaluator.synchronize_between_processes()
-                    coco_evaluator.accumulate()
-                    coco_evaluator.summarize()
-                    stats = coco_evaluator.coco_eval['bbox'].stats
-                    ap.update(stats[0], images.size(0))
-                    ap50.update(stats[1], images.size(0))
-                    progress.display(i)
-                    coco_evaluator = CocoEvaluator(coco, iou_types = ["bbox"], bbox_fmt='coco')
-    
+                # if i % args.print_freq == 0:
+                #     coco_evaluator.synchronize_between_processes()
+                #     coco_evaluator.accumulate()
+                #     coco_evaluator.summarize()
+                #     stats = coco_evaluator.coco_eval['bbox'].stats
+                #     ap.update(stats[0], images.size(0))
+                #     ap50.update(stats[1], images.size(0))
+                #     progress.display(i)
+                #     coco_evaluator = CocoEvaluator(coco, iou_types = ["bbox"], bbox_fmt='coco')
+                if i >= args.max_iter:
+                    break
+    if args.profile:
+        print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=-1))
+    coco_evaluator.synchronize_between_processes()
+    coco_evaluator.accumulate()
+    coco_evaluator.summarize()
     batch_size = args.batch_size
     latency = batch_time.avg / batch_size * 1000
     perf = batch_size / batch_time.avg
     print('inference latency %.3f ms'%latency)
     print("Throughput: {:.3f} fps".format(perf))
-    print("AP: {ap.avg:.3f} ".format(ap=ap))
-    print("AP50: {ap50.avg:.3f} ".format(ap50=ap50))
+    # print("AP: {ap.avg:.3f} ".format(ap=ap))
+    # print("AP50: {ap50.avg:.3f} ".format(ap50=ap50))
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -252,51 +284,50 @@ if __name__ == "__main__":
                         pin_memory=True, drop_last=True, collate_fn=val_collate)
     if args.ipex:
         import intel_pytorch_extension as ipex
+    if args.profile:
+        from torch.profiler import profile, record_function, ProfilerActivity
     if not args.int8:
         model = model.to(memory_format=torch.channels_last)
     criterion = Yolo_loss(device='cpu', batch=args.batch_size // args.subdivisions, n_classes=n_classes)
-
+    model.eval()
     if args.evaluate and args.ipex:
-        print("using ipex model to do inference\n")
-        model.eval()
         if args.int8:
             print("pending, running int8 evalation step\n")
-        elif args.old:
-            print("using old ipex model to do inference\n")
+        elif args.xpu:
             if args.bf16:
                 ipex.enable_auto_mixed_precision(mixed_dtype = torch.bfloat16)
-                model = model.to(ipex.DEVICE)
-                print("running bfloat16 evalation step\n")
-            else:
-                model = model.to(ipex.DEVICE)
-                print("running fp32 evalation step\n")
-            if args.jit:
-                x = torch.randn(args.batch_size, 3, args.height, args.width).to(memory_format=torch.channels_last)
-                x = x.to(ipex.DEVICE)
-                model = model.to(ipex.DEVICE)
-                with torch.no_grad():
-                    model = torch.jit.trace(model, x).to(ipex.DEVICE)
+            model = model.to(ipex.DEVICE)
         else:
             if args.bf16:
                 conf = ipex.AmpConf(torch.bfloat16)
                 model = ipex.optimize(model, dtype=torch.bfloat16, level='O0')
-                print("running bfloat16 evalation step\n")
             else:
+                conf = ipex.AmpConf(torch.float32)
                 model = ipex.optimize(model, dtype=torch.float32, level='O0')
-                print("running fp32 evalation step\n")
-            if args.jit:
-                x = torch.randn(args.batch_size, 3, args.height, args.width).to(memory_format=torch.channels_last)
+        if args.jit:
+            x = torch.randn(args.batch_size, 3, args.height, args.width).to(memory_format=torch.channels_last)
+            if args.xpu:
+                x = x.to(ipex.DEVICE)
+                with torch.no_grad():
+                    model = torch.jit.trace(model, x)
+            else:
                 if args.bf16:
-                    if args.old:
-                        x = x.to(ipex.DEVICE)
-                    else:
-                        x = x.to(torch.bfloat16)
-                    with ipex.amp.autocast(enabled=True, configure=conf), torch.no_grad():
-                        model = torch.jit.trace(model, x).eval()
-                else:
+                    x = x.to(torch.bfloat16)
+                with ipex.amp.autocast(enabled=True, configure=conf), torch.no_grad():
                     model = torch.jit.trace(model, x)
                 model = torch.jit.freeze(model)
         validation(model, val_loader, criterion, args)
     elif args.evaluate:
-        model.eval()
+        if args.bf16:
+            model = model.to(torch.bfloat16)
+        if args.jit:
+            x = torch.randn(args.batch_size, 3, args.height, args.width).to(memory_format=torch.channels_last)
+            if args.bf16:
+                x = x.to(torch.bfloat16)
+                with torch.cpu.amp.autocast(), torch.no_grad():
+                    model = torch.jit.trace(model, x)
+            else:
+                with torch.no_grad():
+                    model = torch.jit.trace(model, x)
+            model = torch.jit.freeze(model)
         validation(model, val_loader, criterion, args)
