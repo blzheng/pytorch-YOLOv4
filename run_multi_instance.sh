@@ -1,6 +1,6 @@
 export DNNL_PRIMITIVE_CACHE_CAPACITY=1024
 
-while getopts 'L:p:d:m:e:i' OPTION
+while getopts 'L:p:d:m:e:i:' OPTION
 do
     case $OPTION in
         L)logdir=$OPTARG
@@ -32,6 +32,8 @@ if [ "$ipex" == "cpu" ]; then
 elif [ "$ipex" == "xpu" ]; then
     ARGS="$ARGS --ipex --xpu"
 fi
+
+echo "args: $ARGS"
 
 log_name="${logdir}/${precision}_${env}_${mode}.log"
 
