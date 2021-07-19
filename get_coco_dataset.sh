@@ -35,7 +35,9 @@ if [ ! -d "$workspace/pytorch-YOLOv4/coco/" ]; then
     rm stuff_annotations_trainval2017.zip
     rm image_info_test2017.zip
     rm image_info_unlabeled2017.zip
-elif [ -f "$workspace/pytorch-YOLOv4/data/val.txt" ]; then
+    cd tool
+    python coco_annotation.py --a $workspace/pytorch-YOLOv4/coco/annotations/instances_val2017.json --i $workspace/pytorch-YOLOv4/coco/images/val2017/
+elif [ ! -f "$workspace/pytorch-YOLOv4/data/val.txt" ]; then
     cd tool
     python coco_annotation.py --a $workspace/pytorch-YOLOv4/coco/annotations/instances_val2017.json --i $workspace/pytorch-YOLOv4/coco/images/val2017/
 fi
