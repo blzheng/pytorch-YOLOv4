@@ -1,4 +1,4 @@
-while getopts 'L:p:c:' OPTION
+while getopts 'L:p:c:s:' OPTION
 do
     case $OPTION in
         L)logdir=$OPTARG
@@ -7,6 +7,8 @@ do
             ;;
         c)conda=$OPTARG
             ;;
+	s)script=$OPTARG
+	    ;;
     esac
 done
 
@@ -40,11 +42,11 @@ do
             for i in ${ipex[@]} 
             do
                 I_ARGS="$M_ARGS -i $i"
-                echo "bash run_multi_instance.sh $I_ARGS"
-                bash run_multi_instance.sh $I_ARGS
+                echo "bash $script $I_ARGS"
+                bash $script $I_ARGS
                 sleep 30
             done
         done
     done
-    $conda deactivate $e
+    $conda deactivate 
 done

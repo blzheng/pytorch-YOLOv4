@@ -280,7 +280,7 @@ if __name__ == "__main__":
     import cv2
     val_dataset = Yolo_dataset(args.val_label, args, train=False)
     n_val = len(val_dataset)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size // args.subdivisions, shuffle=True, num_workers=8,
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8,
                         pin_memory=True, drop_last=True, collate_fn=val_collate)
     if args.ipex:
         import intel_pytorch_extension as ipex
@@ -288,7 +288,7 @@ if __name__ == "__main__":
         from torch.profiler import profile, record_function, ProfilerActivity
     if not args.int8:
         model = model.to(memory_format=torch.channels_last)
-    criterion = Yolo_loss(device='cpu', batch=args.batch_size // args.subdivisions, n_classes=n_classes)
+    criterion = Yolo_loss(device='cpu', batch=args.batch_size, n_classes=n_classes)
     model.eval()
     if args.evaluate and args.ipex:
         if args.int8:
