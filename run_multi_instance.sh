@@ -31,6 +31,12 @@ if [ "$ipex" == "cpu" ]; then
     ARGS="$ARGS --ipex"
 elif [ "$ipex" == "xpu" ]; then
     ARGS="$ARGS --ipex --xpu"
+elif [ "$ipex" == "none" ]; then
+    if [ "$env" == "stock-pytorch-ipex" ]; then
+	env="stock-pytorch"
+    elif [ "$env" == "latest-stock-pytorch-ipex" ]; then
+	env="latest-stock-pytorch"
+    fi
 fi
 
 echo "args: $ARGS"
