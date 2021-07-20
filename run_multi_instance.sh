@@ -67,7 +67,7 @@ for i in $(seq 1 $LAST_INSTANCE); do
     end_core_i=`expr $start_core_i + $CORES_PER_INSTANCE - 1`
     
     echo "### running on instance $i, numa node $numa_node_i, core list {$start_core_i, $end_core_i}..."
-    numactl --physcpubind=$start_core_i-$end_core_i --membind=$numa_node_i python -u main.py --evaluate $ARGS -dir $dataset -b $BATCH_SIZE -j 0 2>&1 | tee ${log_name}${i} &
+    numactl --physcpubind=$start_core_i-$end_core_i --membind=$numa_node_i python -u main.py --evaluate $ARGS -dir $dataset -b $BATCH_SIZE 2>&1 | tee ${log_name}${i} &
 done
 
 numa_node_0=0
@@ -75,4 +75,4 @@ start_core_0=0
 end_core_0=`expr $CORES_PER_INSTANCE - 1`
 
 echo "### running on instance 0, numa node $numa_node_0, core list {$start_core_0, $end_core_0}...\n\n"
-numactl --physcpubind=$start_core_0-$end_core_0 --membind=$numa_node_0 python -u main.py --evaluate $ARGS -dir $dataset -b $BATCH_SIZE -j 0 2>&1 | tee ${log_name}0
+numactl --physcpubind=$start_core_0-$end_core_0 --membind=$numa_node_0 python -u main.py --evaluate $ARGS -dir $dataset -b $BATCH_SIZE 2>&1 | tee ${log_name}0

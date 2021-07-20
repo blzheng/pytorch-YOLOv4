@@ -384,7 +384,7 @@ class Yolo_dataset(Dataset):
             out_bboxes = np.concatenate(out_bboxes, axis=0)
         out_bboxes1 = np.zeros([self.cfg.boxes, 5])
         out_bboxes1[:min(out_bboxes.shape[0], self.cfg.boxes)] = out_bboxes[:min(out_bboxes.shape[0], self.cfg.boxes)]
-        return out_img, out_bboxes1
+        return out_img, out_bboxes1, img_path
 
     def _get_val_item(self, index):
         """
@@ -406,7 +406,7 @@ class Yolo_dataset(Dataset):
         target['image_id'] = torch.tensor([get_image_id(img_path)])
         target['area'] = (target['boxes'][:,3])*(target['boxes'][:,2])
         target['iscrowd'] = torch.zeros((num_objs,), dtype=torch.int64)
-        return img, target
+        return img, target, img_path
 
 
 def get_image_id(filename:str) -> int:

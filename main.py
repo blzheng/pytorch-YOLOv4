@@ -32,7 +32,7 @@ def get_args(**kwargs):
                         help='image file')
     parser.add_argument('--height', default=416, type=int, help='height')
     parser.add_argument('--width', default=416, type=int, help='width')
-    parser.add_argument('-n', '--namesfile', type=str, help='names file')
+    parser.add_argument('-n', '--namesfile', type=str, default='./data/coco.names', help='names file')
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
     parser.add_argument('--ipex', action='store_true', default=False,
@@ -66,10 +66,14 @@ def get_args(**kwargs):
                             'using Data Parallel or Distributed Data Parallel')
     parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
+    parser.add_argument('--draw', action='store_true', default=False, help='draw picture')
+    parser.add_argument('--draw_dir', type=str, default='predictions/', help='draw picture dir')
     parser.add_argument('-cfgfile', type=str, default='./cfg/yolov4.cfg',
                         help='path of cfg file', dest='cfgfile')
     parser.add_argument('-dir', '--data-dir', type=str, default='/lustre/dataset/COCO2017/val2017/',
                         help='dataset dir', dest='dataset_dir')
+    parser.add_argument('--conf_thresh', default=0.4, help='conf threshold')
+    parser.add_argument('--nms_thresh', default=0.6, help='nms threshold')
     args = vars(parser.parse_args())
 
     cfg.update(args)
@@ -152,6 +156,11 @@ def validation(model, val_loader, criterion, args):
                 if args.bf16:
                     output = [o.to(torch.float32) for o in output]
                 targets = batch[1]
+                if args.draw:
+                    img = cv2.imread(batch[2][0])
+                    boxes = utils.post_processing(img, args.conf_thresh, args.nms_thresh, output)
+                    class_names = load_class_names(args.namesfile)
+                    plot_boxes_cv2(img, boxes[0], args.draw_dir+batch[2][0].split('/')[-1], class_names)
                 res = get_result(images, targets, output)
                 coco_evaluator.update(res)
                 # if i % args.print_freq == 0:
@@ -163,7 +172,7 @@ def validation(model, val_loader, criterion, args):
                 #     ap50.update(stats[1], images.size(0))
                 #     progress.display(i)
                 #     coco_evaluator = CocoEvaluator(coco, iou_types = ["bbox"], bbox_fmt='coco')
-                if i >= args.max_iter:
+                if i >= args.max_iter and args.max_iter!=-1:
                     break
     else:
         with torch.no_grad():
@@ -201,6 +210,11 @@ def validation(model, val_loader, criterion, args):
                 if args.bf16:
                     output = [o.to(torch.float32) for o in output]
                 targets = batch[1]
+                if args.draw:
+                    img = cv2.imread(batch[2][0])
+                    boxes = utils.post_processing(img, args.conf_thresh, args.nms_thresh, output)
+                    class_names = load_class_names(args.namesfile)
+                    plot_boxes_cv2(img, boxes[0], args.draw_dir+batch[2][0].split('/')[-1], class_names)
                 res = get_result(images, targets, output)
                 coco_evaluator.update(res)
                 # if i % args.print_freq == 0:
@@ -212,7 +226,7 @@ def validation(model, val_loader, criterion, args):
                 #     ap50.update(stats[1], images.size(0))
                 #     progress.display(i)
                 #     coco_evaluator = CocoEvaluator(coco, iou_types = ["bbox"], bbox_fmt='coco')
-                if i >= args.max_iter:
+                if i >= args.max_iter and args.max_iter!=-1:
                     break
     if args.profile:
         print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=-1))
@@ -280,8 +294,12 @@ if __name__ == "__main__":
     import cv2
     val_dataset = Yolo_dataset(args.val_label, args, train=False)
     n_val = len(val_dataset)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8,
+    if args.batch_size >= args.subdivisions:
+        val_loader = DataLoader(val_dataset, batch_size=args.batch_size // args.subdivisions, shuffle=True, num_workers=8,
                         pin_memory=True, drop_last=True, collate_fn=val_collate)
+    else:
+        val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers,
+                                        pin_memory=True, drop_last=True, collate_fn=val_collate)
     if args.ipex:
         import intel_pytorch_extension as ipex
     if args.profile:
