@@ -18,6 +18,9 @@ do
     esac
 done
 
+if [ ! -d $logdir ]; then
+    mkdir -p $logdir
+fi
 
 ARGS=""
 log_name=$logdir

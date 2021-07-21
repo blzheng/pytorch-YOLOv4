@@ -43,7 +43,9 @@ echo "args: $ARGS"
 
 log_name="${logdir}/accuracy_${precision}_${env}_${mode}.log"
 
-mkdir -p predictions/${precision}_${env}_${mode}/
+if [ ! -d predictions/${precision}_${env}_${mode}/ ]; then
+    mkdir -p predictions/${precision}_${env}_${mode}/
+fi
 
 CORES=`lscpu | grep Core | awk '{print $4}'`
 TOTAL_CORES=$CORES
