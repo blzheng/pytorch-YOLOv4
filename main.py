@@ -104,7 +104,7 @@ def get_result(images, targets, output):
         }
     return res
 
-def validation(model, val_loader, criterion, args):
+def validation(model, val_loader, criterion, args, conf):
     batch_time = AverageMeter('Time', ':6.3f')
     ap = AverageMeter('AP', ':6.2f')
     ap50 = AverageMeter('AP50', ':6.2f')
@@ -121,14 +121,14 @@ def validation(model, val_loader, criterion, args):
     if args.ipex:
         with torch.no_grad():
             for i, batch in enumerate(val_loader):
-                if i >= args.warmup:
-                    end = time.time()
                 images = batch[0]
                 images = [[cv2.resize(img, (args.width, args.height))] for img in images]
                 images = np.concatenate(images, axis=0)
                 images = images.transpose(0, 3, 1, 2)
                 images = torch.from_numpy(images).div(255.0)
                 images = images.to(device='cpu')
+                if i >= args.warmup:
+                    end = time.time()
                 if args.int8:
                     output = model(images)
                 else:
@@ -137,7 +137,7 @@ def validation(model, val_loader, criterion, args):
                         images = images.to(ipex.DEVICE)
                     if args.bf16 and not args.xpu:
                         images = images.to(torch.bfloat16)
-                        with ipex.amp.autocast(enabled=True):
+                        with ipex.amp.autocast(enabled=True, configure=conf):
                             if args.profile:
                                 with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
                                     with record_function("model_inference"):
@@ -177,14 +177,14 @@ def validation(model, val_loader, criterion, args):
     else:
         with torch.no_grad():
             for i, batch in enumerate(val_loader):
-                if i >= args.warmup:
-                    end = time.time()
                 images = batch[0]
                 images = [[cv2.resize(img, (args.width, args.height))] for img in images]
                 images = np.concatenate(images, axis=0)
                 images = images.transpose(0, 3, 1, 2)
                 images = torch.from_numpy(images).div(255.0)
                 images = images.to(device='cpu')
+                if i >= args.warmup:
+                    end = time.time()
                 if args.int8:
                     output = model(images)
                 else:
@@ -308,6 +308,7 @@ if __name__ == "__main__":
         model = model.to(memory_format=torch.channels_last)
     criterion = Yolo_loss(device='cpu', batch=args.batch_size, n_classes=n_classes)
     model.eval()
+    conf = None
     if args.evaluate and args.ipex:
         if args.int8:
             print("pending, running int8 evalation step\n")
@@ -332,9 +333,9 @@ if __name__ == "__main__":
                 if args.bf16:
                     x = x.to(torch.bfloat16)
                 with ipex.amp.autocast(enabled=True, configure=conf), torch.no_grad():
-                    model = torch.jit.trace(model, x)
+                    model = torch.jit.trace(model, x).eval()
                 model = torch.jit.freeze(model)
-        validation(model, val_loader, criterion, args)
+        validation(model, val_loader, criterion, args, conf)
     elif args.evaluate:
         if args.bf16:
             model = model.to(torch.bfloat16)
@@ -348,4 +349,4 @@ if __name__ == "__main__":
                 with torch.no_grad():
                     model = torch.jit.trace(model, x)
             model = torch.jit.freeze(model)
-        validation(model, val_loader, criterion, args)
+        validation(model, val_loader, criterion, args, conf)

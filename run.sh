@@ -12,7 +12,6 @@ do
     esac
 done
 
-export LD_PRELOAD="${workspace}/gperftools-2.7.90/.libs/libtcmalloc.so"
 dataset=${workspace}/pytorch-YOLOv4/coco/images/val2017
 precision=("fp32")
 if [ "$platform" == "CPX" ]; then
@@ -29,6 +28,8 @@ envs=("stock-pytorch-ipex" "pytorch-ipex" "latest-stock-pytorch-ipex")
 for e in ${envs[@]}
 do
     $conda activate $e
+    export LD_PRELOAD="${conda_path}/$e/lib/libiomp5.so:${conda_path}/$e/lib/libjemalloc.so"
+    export MALLOC_CONF="oversize_threshold:1,background_thread:true,metadata_thp:auto,dirty_decay_ms:9000000000,muzzy_decay_ms:9000000000"
     ipex=("cpu" "none")
     if [ "$e" == "pytorch-ipex" ]; then
         ipex=("xpu")
