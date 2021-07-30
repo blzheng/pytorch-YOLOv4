@@ -81,6 +81,20 @@ def get_args(**kwargs):
     return edict(cfg)
 
 def get_result(images, targets, output):
+    n_classes = args.n_classes
+    yolo1 = YoloLayer(anchor_mask=[0, 1, 2], num_classes=n_classes,
+                                anchors=[12, 16, 19, 36, 40, 28, 36, 75, 76, 55, 72, 146, 142, 110, 192, 243, 459, 401],
+                                num_anchors=9, stride=8)
+    yolo2 = YoloLayer(anchor_mask=[3, 4, 5], num_classes=n_classes,
+                                anchors=[12, 16, 19, 36, 40, 28, 36, 75, 76, 55, 72, 146, 142, 110, 192, 243, 459, 401],
+                                num_anchors=9, stride=16)
+    yolo3 = YoloLayer(anchor_mask=[6, 7, 8], num_classes=n_classes,
+                                anchors=[12, 16, 19, 36, 40, 28, 36, 75, 76, 55, 72, 146, 142, 110, 192, 243, 459, 401],
+                                num_anchors=9, stride=32)
+    y1 = yolo1.compute(output[0])
+    y2 = yolo2.compute(output[1])
+    y3 = yolo3.compute(output[2])
+    output = get_region_boxes([y1, y2, y3])
     targets = [{k: v.to('cpu') for k, v in t.items()} for t in targets]
     res = {}
     for img, target, boxes, confs in zip(images, targets, output[0], output[1]):

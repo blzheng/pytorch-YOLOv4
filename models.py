@@ -13,28 +13,20 @@ class Mish(torch.nn.Module):
         x = x * (torch.tanh(torch.nn.functional.softplus(x)))
         return x
 
-
 class Upsample(nn.Module):
-    def __init__(self):
+    def __init__(self, inference):
+        self.inference = inference
         super(Upsample, self).__init__()
 
-    def forward(self, x, target_size, inference=False):
-        assert (x.data.dim() == 4)
+    def forward(self, x, target_size):
+        # assert (x.data.dim() == 4)
         # _, _, tH, tW = target_size
-
-        if inference:
-
-            #B = x.data.size(0)
-            #C = x.data.size(1)
-            #H = x.data.size(2)
-            #W = x.data.size(3)
-
+        if self.inference:
             return x.view(x.size(0), x.size(1), x.size(2), 1, x.size(3), 1).\
                     expand(x.size(0), x.size(1), x.size(2), target_size[2] // x.size(2), x.size(3), target_size[3] // x.size(3)).\
                     contiguous().view(x.size(0), x.size(1), target_size[2], target_size[3])
         else:
             return F.interpolate(x, size=(target_size[2], target_size[3]), mode='nearest')
-
 
 class Conv_Bn_Activation(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, activation, bn=True, bias=False):
@@ -256,7 +248,7 @@ class Neck(nn.Module):
         self.conv6 = Conv_Bn_Activation(1024, 512, 1, 1, 'leaky')
         self.conv7 = Conv_Bn_Activation(512, 256, 1, 1, 'leaky')
         # UP
-        self.upsample1 = Upsample()
+        self.upsample1 = Upsample(self.inference)
         # R 85
         self.conv8 = Conv_Bn_Activation(512, 256, 1, 1, 'leaky')
         # R -1 -3
@@ -267,7 +259,7 @@ class Neck(nn.Module):
         self.conv13 = Conv_Bn_Activation(512, 256, 1, 1, 'leaky')
         self.conv14 = Conv_Bn_Activation(256, 128, 1, 1, 'leaky')
         # UP
-        self.upsample2 = Upsample()
+        self.upsample2 = Upsample(self.inference)
         # R 54
         self.conv15 = Conv_Bn_Activation(256, 128, 1, 1, 'leaky')
         # R -1 -3
@@ -277,7 +269,7 @@ class Neck(nn.Module):
         self.conv19 = Conv_Bn_Activation(128, 256, 3, 1, 'leaky')
         self.conv20 = Conv_Bn_Activation(256, 128, 1, 1, 'leaky')
 
-    def forward(self, input, downsample4, downsample3, inference=False):
+    def forward(self, input, downsample4, downsample3):
         x1 = self.conv1(input)
         x2 = self.conv2(x1)
         x3 = self.conv3(x2)
@@ -292,7 +284,7 @@ class Neck(nn.Module):
         x6 = self.conv6(x5)
         x7 = self.conv7(x6)
         # UP
-        up = self.upsample1(x7, downsample4.size(), self.inference)
+        up = self.upsample1(x7, downsample4.size())
         # R 85
         x8 = self.conv8(downsample4)
         # R -1 -3
@@ -306,7 +298,7 @@ class Neck(nn.Module):
         x14 = self.conv14(x13)
 
         # UP
-        up = self.upsample2(x14, downsample3.size(), self.inference)
+        up = self.upsample2(x14, downsample3.size())
         # R 54
         x15 = self.conv15(downsample3)
         # R -1 -3
@@ -328,11 +320,6 @@ class Yolov4Head(nn.Module):
         self.conv1 = Conv_Bn_Activation(128, 256, 3, 1, 'leaky')
         self.conv2 = Conv_Bn_Activation(256, output_ch, 1, 1, 'linear', bn=False, bias=True)
 
-        self.yolo1 = YoloLayer(
-                                anchor_mask=[0, 1, 2], num_classes=n_classes,
-                                anchors=[12, 16, 19, 36, 40, 28, 36, 75, 76, 55, 72, 146, 142, 110, 192, 243, 459, 401],
-                                num_anchors=9, stride=8)
-
         # R -4
         self.conv3 = Conv_Bn_Activation(128, 256, 3, 2, 'leaky')
 
@@ -345,11 +332,6 @@ class Yolov4Head(nn.Module):
         self.conv9 = Conv_Bn_Activation(256, 512, 3, 1, 'leaky')
         self.conv10 = Conv_Bn_Activation(512, output_ch, 1, 1, 'linear', bn=False, bias=True)
         
-        self.yolo2 = YoloLayer(
-                                anchor_mask=[3, 4, 5], num_classes=n_classes,
-                                anchors=[12, 16, 19, 36, 40, 28, 36, 75, 76, 55, 72, 146, 142, 110, 192, 243, 459, 401],
-                                num_anchors=9, stride=16)
-
         # R -4
         self.conv11 = Conv_Bn_Activation(256, 512, 3, 2, 'leaky')
 
@@ -361,11 +343,6 @@ class Yolov4Head(nn.Module):
         self.conv16 = Conv_Bn_Activation(1024, 512, 1, 1, 'leaky')
         self.conv17 = Conv_Bn_Activation(512, 1024, 3, 1, 'leaky')
         self.conv18 = Conv_Bn_Activation(1024, output_ch, 1, 1, 'linear', bn=False, bias=True)
-        
-        self.yolo3 = YoloLayer(
-                                anchor_mask=[6, 7, 8], num_classes=n_classes,
-                                anchors=[12, 16, 19, 36, 40, 28, 36, 75, 76, 55, 72, 146, 142, 110, 192, 243, 459, 401],
-                                num_anchors=9, stride=32)
 
     def forward(self, input1, input2, input3):
         x1 = self.conv1(input1)
@@ -394,17 +371,7 @@ class Yolov4Head(nn.Module):
         x16 = self.conv16(x15)
         x17 = self.conv17(x16)
         x18 = self.conv18(x17)
-        
-        if self.inference:
-            y1 = self.yolo1(x2)
-            y2 = self.yolo2(x10)
-            y3 = self.yolo3(x18)
-
-            return get_region_boxes([y1, y2, y3])
-        
-        else:
-            return [x2, x10, x18]
-
+        return [x2, x10, x18]
 
 class Yolov4(nn.Module):
     def __init__(self, yolov4conv137weight=None, n_classes=80, inference=False):
